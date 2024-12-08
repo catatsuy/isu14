@@ -99,8 +99,16 @@ func setup() http.Handler {
 		time.Sleep(time.Second * 2)
 	}
 
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	defer devNull.Close()
+	logger := slog.New(slog.NewTextHandler(devNull, &slog.HandlerOptions{}))
+	slog.SetDefault(logger)
+
 	mux := chi.NewRouter()
-	mux.Use(middleware.Logger)
+	// mux.Use(middleware.Logger)
 	mux.Use(middleware.Recoverer)
 	mux.HandleFunc("POST /api/initialize", postInitialize)
 
