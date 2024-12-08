@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -172,7 +173,9 @@ func writeError(w http.ResponseWriter, statusCode int, err error) {
 	}
 	w.Write(buf)
 
-	slog.Error("error response wrote", err)
+	_, file, line, _ := runtime.Caller(1)
+
+	slog.Error("error response wrote", err, "file", file, "line", line)
 }
 
 func secureRandomStr(b int) string {
