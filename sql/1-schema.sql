@@ -30,10 +30,13 @@ CREATE TABLE chairs
   model        TEXT         NOT NULL COMMENT '椅子のモデル',
   is_active    TINYINT(1)   NOT NULL COMMENT '配椅子受付中かどうか',
   access_token VARCHAR(255) NOT NULL COMMENT 'アクセストークン',
+  latitude     INTEGER      DEFAULT NULL COMMENT '経度',
+  longitude    INTEGER      DEFAULT NULL COMMENT '緯度',
   created_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '登録日時',
   updated_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新日時',
   PRIMARY KEY (id),
-  KEY owner_id(owner_id)
+  KEY owner_id(owner_id),
+  KEY latitude_longitude(latitude, longitude)
 )
   COMMENT = '椅子情報テーブル';
 
@@ -46,7 +49,7 @@ CREATE TABLE chair_locations
   longitude  INTEGER     NOT NULL COMMENT '緯度',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '登録日時',
   PRIMARY KEY (id),
-  KEY chair_locations(chair_id, created_at)
+  KEY chair_locations(chair_id, created_at),
   KEY latitude_longitude(latitude, longitude)
 )
   COMMENT = '椅子の現在位置情報テーブル';
@@ -217,6 +220,55 @@ BEGIN
         INSERT INTO distance_table (chair_id, total_distance, total_distance_updated_at)
         VALUES (NEW.chair_id, total_distance, total_distance_updated_at);
     END IF;
+END //
+
+DELIMITER ;
+
+CREATE TRIGGER after_update_chair_locations
+AFTER UPDATE ON chair_locations
+FOR EACH ROW
+BEGIN
+    -- 最新の `latitude` と `longitude` を取得
+    DECLARE latest_latitude INT;
+    DECLARE latest_longitude INT;
+
+    SELECT latitude, longitude
+    INTO latest_latitude, latest_longitude
+    FROM chair_locations
+    WHERE chair_id = NEW.chair_id
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    -- `chairs` テーブルを更新
+    UPDATE chairs
+    SET latitude = latest_latitude,
+        longitude = latest_longitude
+    WHERE id = NEW.chair_id;
+END //
+DELIMITER ;
+
+DELIMITER //
+
+CREATE TRIGGER after_insert_chair_locations
+AFTER INSERT ON chair_locations
+FOR EACH ROW
+BEGIN
+    -- 最新の `latitude` と `longitude` を取得
+    DECLARE latest_latitude INT;
+    DECLARE latest_longitude INT;
+
+    SELECT latitude, longitude
+    INTO latest_latitude, latest_longitude
+    FROM chair_locations
+    WHERE chair_id = NEW.chair_id
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    -- `chairs` テーブルを更新
+    UPDATE chairs
+    SET latitude = latest_latitude,
+        longitude = latest_longitude
+    WHERE id = NEW.chair_id;
 END //
 
 DELIMITER ;
