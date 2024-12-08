@@ -4,7 +4,7 @@ set -x
 
 echo "start deploy ${USER}"
 GOOS=linux GOARCH=amd64 go build -o isuride_linux
-for server in isu01; do
+for server in isu02; do
   ssh -t $server "sudo systemctl stop isuride-go.service"
   # for build on Linux
   # rsync -vau --exclude=app ./ $server:/home/isucon/private_isu/webapp/golang/
