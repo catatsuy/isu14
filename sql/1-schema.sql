@@ -136,3 +136,85 @@ CREATE TABLE coupons
   PRIMARY KEY (user_id, code)
 )
   COMMENT 'クーポンテーブル';
+
+DROP TABLE  IF EXISTS `distance_table`;
+CREATE TABLE distance_table
+(
+    chair_id                  VARCHAR(26)  NOT NULL COMMENT '椅子ID',
+    total_distance            INT          NOT NULL,
+    total_distance_updated_at DATETIME(6)  NOT NULL,
+    PRIMARY KEY (chair_id)
+);
+
+DROP TABLE  IF EXISTS `tmp_distance_table`;
+CREATE TABLE tmp_distance_table (
+    chair_id          VARCHAR(26) NOT NULL,
+    created_at        DATETIME(6) NOT NULL,
+    prev_latitude     INTEGER NULL,
+    prev_longitude    INTEGER NULL,
+    current_latitude  INTEGER NOT NULL,
+    current_longitude INTEGER NOT NULL,
+    distance          FLOAT NOT NULL,
+    PRIMARY KEY (chair_id, created_at)
+);
+
+DROP TRIGGER IF EXISTS after_insert_chair_locations;
+DROP TRIGGER IF EXISTS after_insert_tmp_distance_table;
+DELIMITER //
+
+CREATE TRIGGER after_insert_chair_locations
+AFTER INSERT ON chair_locations
+FOR EACH ROW
+BEGIN
+    DECLARE prev_lat INTEGER;
+    DECLARE prev_long INTEGER;
+    DECLARE distance FLOAT;
+
+    -- 前回の座標を取得 (同じ chair_id の最新データ)
+    SELECT latitude, longitude
+    INTO prev_lat, prev_long
+    FROM chair_locations
+    WHERE chair_id = NEW.chair_id
+      AND created_at < NEW.created_at
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    -- 距離を計算 (前回の座標がある場合のみ)
+    IF prev_lat IS NOT NULL AND prev_long IS NOT NULL THEN
+        SET distance = ABS(NEW.latitude - prev_lat) + ABS(NEW.longitude - prev_long);
+    ELSE
+        SET distance = 0;  -- 最初のデータの場合は距離を0に設定
+    END IF;
+
+    -- tmp_distance_table に挿入
+    INSERT INTO tmp_distance_table (chair_id, created_at, prev_latitude, prev_longitude, 
+                                    current_latitude, current_longitude, distance)
+    VALUES (NEW.chair_id, NEW.created_at, prev_lat, prev_long, NEW.latitude, NEW.longitude, distance);
+END //
+
+CREATE TRIGGER after_insert_tmp_distance_table
+AFTER INSERT ON tmp_distance_table
+FOR EACH ROW
+BEGIN
+    DECLARE total_distance INT;
+    DECLARE total_distance_updated_at DATETIME(6);
+
+    -- tmp_distance_table から total_distance を計算
+    SELECT SUM(IFNULL(distance, 0)), MAX(created_at)
+    INTO total_distance, total_distance_updated_at
+    FROM tmp_distance_table
+    WHERE chair_id = NEW.chair_id;
+
+    -- distance_table を更新
+    IF EXISTS (SELECT 1 FROM distance_table WHERE chair_id = NEW.chair_id) THEN
+        UPDATE distance_table
+        SET total_distance = total_distance,
+            total_distance_updated_at = total_distance_updated_at
+        WHERE chair_id = NEW.chair_id;
+    ELSE
+        INSERT INTO distance_table (chair_id, total_distance, total_distance_updated_at)
+        VALUES (NEW.chair_id, total_distance, total_distance_updated_at);
+    END IF;
+END //
+
+DELIMITER ;
