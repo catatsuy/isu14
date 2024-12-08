@@ -11,6 +11,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/k0kubun/pp v2.4.0+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
