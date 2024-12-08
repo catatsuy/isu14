@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,13 @@ var db *sqlx.DB
 
 func main() {
 	mux := setup()
+	go func() {
+		ch := time.Tick(500 * time.Millisecond)
+		for {
+			<-ch
+			internalMatching(context.Background())
+		}
+	}()
 	slog.Info("Listening on :8080")
 	http.ListenAndServe(":8080", mux)
 }
