@@ -12,6 +12,8 @@ type Chair struct {
 	Model       string    `db:"model"`
 	IsActive    bool      `db:"is_active"`
 	AccessToken string    `db:"access_token"`
+	Latitude    int       `db:"latitude"`
+	Longitude   int       `db:"longitude"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
 }
