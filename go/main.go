@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -58,12 +59,36 @@ func setup() http.Handler {
 	dbConfig.Net = "tcp"
 	dbConfig.DBName = dbname
 	dbConfig.ParseTime = true
+	dbConfig.InterpolateParams = true
 
 	_db, err := sqlx.Connect("mysql", dbConfig.FormatDSN())
 	if err != nil {
 		panic(err)
 	}
 	db = _db
+
+	maxConns := os.Getenv("DB_MAXOPENCONNS")
+	maxConnsInt := 25
+	if maxConns != "" {
+		maxConnsInt, err = strconv.Atoi(maxConns)
+		if err != nil {
+			panic(err)
+		}
+	}
+	db.SetMaxOpenConns(maxConnsInt)
+	db.SetMaxIdleConns(maxConnsInt * 2)
+	db.SetConnMaxLifetime(3 * time.Minute)
+	// db.SetConnMaxIdleTime(2 * time.Minute)
+
+	for {
+		err := db.Ping()
+		// _, err := db.Exec("SELECT 42")
+		if err == nil {
+			break
+		}
+		slog.Info("failed to ping DB", err)
+		time.Sleep(time.Second * 2)
+	}
 
 	mux := chi.NewRouter()
 	mux.Use(middleware.Logger)
