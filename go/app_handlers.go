@@ -253,11 +253,6 @@ func appGetRides(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, &getAppRidesResponse{
 		Rides: items,
 	})
