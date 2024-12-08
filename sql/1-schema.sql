@@ -46,7 +46,7 @@ CREATE TABLE chair_locations
   longitude  INTEGER     NOT NULL COMMENT '緯度',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '登録日時',
   PRIMARY KEY (id),
-  KEY chair_locations(chair_id, created_at)
+  KEY chair_locations(chair_id, created_at),
   KEY latitude_longitude(latitude, longitude)
 )
   COMMENT = '椅子の現在位置情報テーブル';
