@@ -14,7 +14,7 @@ for server in isu01; do
   # ssh -t $server "sudo truncate -s 0 /var/log/nginx/access.log; sudo truncate -s 0 /var/log/mysql/slow.log"
 
   scp ./isuride_linux $server:/home/isucon/webapp/go/isuride
-  # rsync -vau ../sql/ $server:/home/isucon/isucari/webapp/sql/
+  rsync -vau ../sql/ $server:/home/isucon/webapp/sql/
   ssh -t $server "sudo systemctl start isuride-go.service"
 done
 
