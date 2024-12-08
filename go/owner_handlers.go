@@ -2,11 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -81,6 +84,8 @@ type ownerGetSalesResponse struct {
 
 func ownerGetSales(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	// Parse time range from request
 	since := time.Unix(0, 0)
 	until := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 	if r.URL.Query().Get("since") != "" {
@@ -100,48 +105,126 @@ func ownerGetSales(w http.ResponseWriter, r *http.Request) {
 		until = time.UnixMilli(parsed)
 	}
 
-	owner := r.Context().Value("owner").(*Owner)
+	owner := ctx.Value("owner").(*Owner)
 
+	// Fetch all chairs for the owner
 	chairs := []Chair{}
 	if err := db.SelectContext(ctx, &chairs, "SELECT * FROM chairs WHERE owner_id = ?", owner.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	res := ownerGetSalesResponse{
-		TotalSales: 0,
+	// Collect chair IDs for use in the next query
+	chairIDs := []string{}
+	for _, chair := range chairs {
+		chairIDs = append(chairIDs, chair.ID)
 	}
 
-	modelSalesByModel := map[string]int{}
-	for _, chair := range chairs {
-		rides := []Ride{}
-		if err := db.SelectContext(ctx, &rides, "SELECT rides.* FROM rides JOIN ride_statuses ON rides.id = ride_statuses.ride_id WHERE chair_id = ? AND status = 'COMPLETED' AND updated_at BETWEEN ? AND ? + INTERVAL 999 MICROSECOND", chair.ID, since, until); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
+	if len(chairIDs) == 0 {
+		writeJSON(w, http.StatusOK, ownerGetSalesResponse{
+			TotalSales: 0,
+			Chairs:     []chairSales{},
+			Models:     []modelSales{},
+		})
+		return
+	}
+
+	// Fetch ride data without fare calculation in SQL
+	type RideData struct {
+		RideID               string         `db:"ride_id"`
+		ChairID              sql.NullString `db:"chair_id"`
+		ChairModel           string         `db:"chair_model"`
+		PickupLatitude       int            `db:"pickup_latitude"`
+		PickupLongitude      int            `db:"pickup_longitude"`
+		DestinationLatitude  int            `db:"destination_latitude"`
+		DestinationLongitude int            `db:"destination_longitude"`
+	}
+
+	rides := []RideData{}
+
+	query, args, err := sqlx.In(`
+	SELECT rides.id AS ride_id, rides.chair_id, chairs.model AS chair_model, 
+				 rides.pickup_latitude, rides.pickup_longitude, 
+				 rides.destination_latitude, rides.destination_longitude
+	FROM rides
+	JOIN ride_statuses ON rides.id = ride_statuses.ride_id
+	JOIN chairs ON rides.chair_id = chairs.id
+	WHERE rides.chair_id IN (?) 
+		AND ride_statuses.status = 'COMPLETED'
+		AND rides.updated_at >= ? AND rides.updated_at <= ?
+`, chairIDs, since, until)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	query = db.Rebind(query)
+	if err := db.SelectContext(ctx, &rides, query, args...); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Deduplicate rides and calculate sales
+	chairSalesMap := make(map[string]int)
+	modelSalesMap := make(map[string]int)
+	totalSales := 0
+
+	for _, ride := range rides {
+		if !ride.ChairID.Valid {
+			continue
 		}
 
-		sales := sumSales(rides)
-		res.TotalSales += sales
+		// Calculate fare
+		fare := calculateFare(ride.PickupLatitude, ride.PickupLongitude, ride.DestinationLatitude, ride.DestinationLongitude)
 
+		// Aggregate sales
+		chairSalesMap[ride.ChairID.String] += fare
+		modelSalesMap[ride.ChairModel] += fare
+		totalSales += fare
+	}
+
+	// Build response
+	res := ownerGetSalesResponse{
+		TotalSales: totalSales,
+		Chairs:     []chairSales{},
+		Models:     []modelSales{},
+	}
+
+	for _, chair := range chairs {
 		res.Chairs = append(res.Chairs, chairSales{
 			ID:    chair.ID,
 			Name:  chair.Name,
-			Sales: sales,
+			Sales: chairSalesMap[chair.ID],
 		})
-
-		modelSalesByModel[chair.Model] += sales
 	}
 
-	models := []modelSales{}
-	for model, sales := range modelSalesByModel {
-		models = append(models, modelSales{
+	for model, sales := range modelSalesMap {
+		res.Models = append(res.Models, modelSales{
 			Model: model,
 			Sales: sales,
 		})
 	}
-	res.Models = models
+
+	saveOwnerGetSalesResponseToFile(owner.ID, res)
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+func saveOwnerGetSalesResponseToFile(ownerID string, response ownerGetSalesResponse) error {
+	fileName := "/home/isucon/" + ownerID + ".json"
+	file, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ") // Pretty-print JSON
+	if err := encoder.Encode(response); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func sumSales(rides []Ride) int {
