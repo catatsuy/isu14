@@ -900,26 +900,19 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		rides := []*Ride{}
-		if err := tx.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE chair_id = ? ORDER BY created_at DESC`, chair.ID); err != nil {
+		var status string
+		// 最も新しいライドのステータスを直接取得
+		if err := tx.GetContext(ctx, &status, `SELECT status FROM rides WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`, chair.ID); err != nil {
+			if err == sql.ErrNoRows {
+				// ライドが存在しない場合、スキップしない
+				continue
+			}
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 
-		skip := false
-		for _, ride := range rides {
-			// 過去にライドが存在し、かつ、それが完了していない場合はスキップ
-			status, err := getLatestRideStatus(ctx, tx, ride.ID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			if status != "COMPLETED" {
-				skip = true
-				break
-			}
-		}
-		if skip {
+		// ライドが完了していない場合、スキップ
+		if status != "COMPLETED" {
 			continue
 		}
 
