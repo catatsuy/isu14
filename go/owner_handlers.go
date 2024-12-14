@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -79,6 +81,17 @@ type ownerGetSalesResponse struct {
 	Models     []modelSales `json:"models"`
 }
 
+type OwnerRide struct {
+	ChairID              string         `db:"chair_id"`
+	ChairModel           string         `db:"chair_model"`
+	ChairName            string         `db:"chair_name"`
+	Status               sql.NullString `db:"status"`
+	PickupLatitude       sql.NullInt32  `db:"pickup_latitude"`
+	PickupLongitude      sql.NullInt32  `db:"pickup_longitude"`
+	DestinationLatitude  sql.NullInt32  `db:"destination_latitude"`
+	DestinationLongitude sql.NullInt32  `db:"destination_longitude"`
+}
+
 func ownerGetSales(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	since := time.Unix(0, 0)
@@ -102,8 +115,8 @@ func ownerGetSales(w http.ResponseWriter, r *http.Request) {
 
 	owner := r.Context().Value("owner").(*Owner)
 
-	chairs := []Chair{}
-	if err := db.SelectContext(ctx, &chairs, "SELECT * FROM chairs WHERE owner_id = ?", owner.ID); err != nil {
+	chairs := make([]string, 0, 100)
+	if err := db.SelectContext(ctx, &chairs, "SELECT id FROM chairs WHERE owner_id = ?", owner.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -113,24 +126,62 @@ func ownerGetSales(w http.ResponseWriter, r *http.Request) {
 	}
 
 	modelSalesByModel := map[string]int{}
-	for _, chair := range chairs {
-		rides := []Ride{}
-		if err := db.SelectContext(ctx, &rides, "SELECT rides.* FROM rides JOIN ride_statuses ON rides.id = ride_statuses.ride_id WHERE chair_id = ? AND status = 'COMPLETED' AND updated_at BETWEEN ? AND ? + INTERVAL 999 MICROSECOND", chair.ID, since, until); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
 
-		sales := sumSales(rides)
+	ownerRides := make([]OwnerRide, 0, 100)
+
+	query := `SELECT rides.pickup_latitude AS pickup_latitude, rides.pickup_longitude AS pickup_longitude, rides.destination_latitude AS destination_latitude, rides.destination_longitude AS destination_longitude, chairs.id AS chair_id, chairs.model AS chair_model, chairs.name AS chair_name, ride_statuses.status AS status
+	FROM chairs LEFT JOIN rides ON chairs.id = rides.chair_id AND (rides.updated_at BETWEEN ? AND ? + INTERVAL 999 MICROSECOND)
+	LEFT JOIN ride_statuses ON rides.id = ride_statuses.ride_id AND status = 'COMPLETED'
+	WHERE chairs.id IN (?)`
+
+	query, args, err := sqlx.In(query, since, until, chairs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	err = db.SelectContext(ctx, &ownerRides, query, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	rideModels := make(map[string]chairSales)
+
+	for _, ride := range ownerRides {
+		sales := 0
+		if ride.Status.Valid {
+			sales = calculateSale(Ride{
+				PickupLatitude:       int(ride.PickupLatitude.Int32),
+				PickupLongitude:      int(ride.PickupLongitude.Int32),
+				DestinationLatitude:  int(ride.DestinationLatitude.Int32),
+				DestinationLongitude: int(ride.DestinationLongitude.Int32),
+			})
+		}
 		res.TotalSales += sales
 
-		res.Chairs = append(res.Chairs, chairSales{
-			ID:    chair.ID,
-			Name:  chair.Name,
-			Sales: sales,
-		})
+		r, ok := rideModels[ride.ChairID]
+		if !ok {
+			r = chairSales{
+				ID:    ride.ChairID,
+				Name:  ride.ChairName,
+				Sales: sales,
+			}
+		} else {
+			r.Sales += sales
+		}
+		rideModels[ride.ChairID] = r
 
-		modelSalesByModel[chair.Model] += sales
+		modelSalesByModel[ride.ChairModel] += sales
 	}
+
+	for _, ride := range rideModels {
+		res.Chairs = append(res.Chairs, ride)
+	}
+
+	sort.Slice(res.Chairs, func(i, j int) bool {
+		return res.Chairs[i].ID < res.Chairs[j].ID
+	})
 
 	models := []modelSales{}
 	for model, sales := range modelSalesByModel {
