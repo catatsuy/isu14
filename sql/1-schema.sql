@@ -93,7 +93,8 @@ CREATE TABLE rides
   evaluation            INTEGER     NULL     COMMENT '評価',
   created_at            DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '要求日時',
   updated_at            DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '状態更新日時',
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  KEY idx_chair_id(chair_id)
 )
   COMMENT = 'ライド情報テーブル';
 
