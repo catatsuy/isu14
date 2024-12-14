@@ -18,6 +18,8 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/goccy/go-json"
 	"github.com/jmoiron/sqlx"
+
+	proxy "github.com/shogo82148/go-sql-proxy"
 )
 
 var db *sqlx.DB
@@ -70,11 +72,24 @@ func setup() http.Handler {
 	dbConfig.ParseTime = true
 	dbConfig.InterpolateParams = true
 
-	_db, err := sqlx.Connect("mysql", dbConfig.FormatDSN())
+	var isDev bool
+	if os.Getenv("DEV") == "1" {
+		isDev = true
+	}
+
+	_ = isDev
+
+	if true {
+		proxy.RegisterTracer()
+
+		db, err = sqlx.Connect("mysql:trace", dbConfig.FormatDSN())
+	} else {
+		db, err = sqlx.Connect("mysql", dbConfig.FormatDSN())
+	}
+
 	if err != nil {
 		panic(err)
 	}
-	db = _db
 
 	maxConns := os.Getenv("DB_MAXOPENCONNS")
 	maxConnsInt := 25
@@ -99,16 +114,16 @@ func setup() http.Handler {
 		time.Sleep(time.Second * 2)
 	}
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		panic(err)
-	}
-	defer devNull.Close()
-	logger := slog.New(slog.NewTextHandler(devNull, &slog.HandlerOptions{}))
-	slog.SetDefault(logger)
+	// devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer devNull.Close()
+	// logger := slog.New(slog.NewTextHandler(devNull, &slog.HandlerOptions{}))
+	// slog.SetDefault(logger)
 
 	mux := chi.NewRouter()
-	// mux.Use(middleware.Logger)
+	mux.Use(middleware.Logger)
 	mux.Use(middleware.Recoverer)
 	mux.HandleFunc("POST /api/initialize", postInitialize)
 
