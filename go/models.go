@@ -16,6 +16,16 @@ type Chair struct {
 	UpdatedAt   time.Time `db:"updated_at"`
 }
 
+type ChairWithLocation struct {
+	ID        string `db:"id"`
+	OwnerID   string `db:"owner_id"`
+	Name      string `db:"name"`
+	Model     string `db:"model"`
+	IsActive  bool   `db:"is_active"`
+	Latitude  int    `db:"current_latitude"`
+	Longitude int    `db:"current_longitude"`
+}
+
 type ChairModel struct {
 	Name  string `db:"name"`
 	Speed int    `db:"speed"`
