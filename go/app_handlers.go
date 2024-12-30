@@ -897,31 +897,41 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 	err = tx.SelectContext(
 		ctx,
 		&chairs,
-		`WITH current_locations AS (
-			SELECT
-					cl.chair_id,
-					cl.latitude,
-					cl.longitude,
-					ROW_NUMBER() OVER (PARTITION BY cl.chair_id ORDER BY cl.created_at DESC) AS row_num
-			FROM
-					chair_locations cl
-	)
-	SELECT
-			c.id AS id,
-			c.owner_id AS owner_id,
-			c.name AS name,
-			c.model AS model,
-			c.is_active AS is_active,
-			cl.latitude AS current_latitude,
-			cl.longitude AS current_longitude
-	FROM
-			chairs c
-	INNER JOIN
-			current_locations cl
-	ON
-			c.id = cl.chair_id AND cl.row_num = 1
-	WHERE
-			c.is_active = 1`,
+		`SELECT
+    c.id AS id,
+    c.owner_id AS owner_id,
+    c.name AS name,
+    c.model AS model,
+    c.is_active AS is_active,
+    cl.latitude AS current_latitude,
+    cl.longitude AS current_longitude
+FROM
+    chairs c
+INNER JOIN
+    (
+        SELECT
+            cl.chair_id,
+            cl.latitude,
+            cl.longitude
+        FROM
+            chair_locations cl
+        INNER JOIN (
+            SELECT
+                chair_id,
+                MAX(created_at) AS latest_created_at
+            FROM
+                chair_locations
+            GROUP BY
+                chair_id
+        ) latest_cl
+        ON
+            cl.chair_id = latest_cl.chair_id AND cl.created_at = latest_cl.latest_created_at
+    ) cl
+ON
+    c.id = cl.chair_id
+WHERE
+    c.is_active = 1 AND cl.latitude BETWEEN ? AND ? AND cl.longitude BETWEEN ? AND ? AND ABS(cl.latitude - ?) + ABS(cl.longitude - ?) <= ?`,
+		coordinate.Latitude-distance, coordinate.Latitude+distance, coordinate.Longitude-distance, coordinate.Longitude+distance, coordinate.Latitude, coordinate.Longitude, distance,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -954,17 +964,15 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if calculateDistance(coordinate.Latitude, coordinate.Longitude, chair.Latitude, chair.Longitude) <= distance {
-			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChair{
-				ID:    chair.ID,
-				Name:  chair.Name,
-				Model: chair.Model,
-				CurrentCoordinate: Coordinate{
-					Latitude:  chair.Latitude,
-					Longitude: chair.Longitude,
-				},
-			})
-		}
+		nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChair{
+			ID:    chair.ID,
+			Name:  chair.Name,
+			Model: chair.Model,
+			CurrentCoordinate: Coordinate{
+				Latitude:  chair.Latitude,
+				Longitude: chair.Longitude,
+			},
+		})
 	}
 
 	retrievedAt := &time.Time{}
