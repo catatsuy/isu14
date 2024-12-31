@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
+	"github.com/catatsuy/cache"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -93,34 +93,7 @@ func chairPostActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type cacheChairLocations struct {
-	sync.Mutex
-	items []ChairLocation
-}
-
-var mCacheChairLocation = NewCacheChairLocations()
-
-func NewCacheChairLocations() *cacheChairLocations {
-	m := make([]ChairLocation, 0, 100)
-	c := &cacheChairLocations{
-		items: m,
-	}
-	return c
-}
-
-func (c *cacheChairLocations) Append(value ChairLocation) {
-	c.Lock()
-	c.items = append(c.items, value)
-	c.Unlock()
-}
-
-func (c *cacheChairLocations) Rotate() []ChairLocation {
-	c.Lock()
-	tmp := c.items
-	c.items = make([]ChairLocation, 0, 100)
-	c.Unlock()
-	return tmp
-}
+var mCacheChairLocation = cache.NewRollingCache[ChairLocation](100)
 
 func BulkUpdateChairLocations(ctx context.Context, locations []ChairLocation) error {
 	if len(locations) == 0 {
