@@ -3,6 +3,7 @@ module github.com/isucon/isucon14/webapp/go
 go 1.23
 
 require (
+	github.com/catatsuy/cache v0.3.1
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/goccy/go-json v0.10.3
