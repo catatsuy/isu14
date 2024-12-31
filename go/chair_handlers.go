@@ -123,6 +123,10 @@ func (c *cacheChairLocations) Rotate() []ChairLocation {
 }
 
 func BulkUpdateChairLocations(ctx context.Context, locations []ChairLocation) error {
+	if len(locations) == 0 {
+		return nil
+	}
+
 	_, err := db.NamedExecContext(ctx, `INSERT INTO chair_locations (id, chair_id, latitude, longitude, created_at) VALUES (:id, :chair_id, :latitude, :longitude, :created_at)`, locations)
 	if err != nil {
 		return err
