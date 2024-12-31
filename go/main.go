@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -152,6 +153,18 @@ func setup() http.Handler {
 
 	// chair handlers
 	{
+		c := time.Tick(1 * time.Second)
+		go func() {
+			for {
+				cls := mCacheChairLocation.Rotate()
+				err := BulkUpdateChairLocations(context.Background(), cls)
+				if err != nil {
+					log.Printf("[WARN] logger send failed. err:%s", err)
+				}
+				<-c
+			}
+		}()
+
 		mux.HandleFunc("POST /api/chair/chairs", chairPostChairs)
 
 		authedMux := mux.With(chairAuthMiddleware)
