@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	crand "crypto/rand"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
@@ -19,11 +20,14 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/goccy/go-json"
 	"github.com/jmoiron/sqlx"
-
 	proxy "github.com/shogo82148/go-sql-proxy"
 )
 
 var db *sqlx.DB
+
+func init() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+}
 
 func main() {
 	mux := setup()
@@ -36,6 +40,16 @@ func main() {
 	}()
 	slog.Info("Listening on :8080")
 	http.ListenAndServe(":8080", mux)
+}
+
+func RegisterTracer() {
+	sql.Register("mysql:mytrace", proxy.NewProxyContext(&mysql.MySQLDriver{}, proxy.NewTraceHooks(proxy.TracerOptions{
+		Filter: proxy.PackageFilter{
+			"database/sql":                       struct{}{},
+			"github.com/shogo82148/go-sql-proxy": struct{}{},
+			"github.com/jmoiron/sqlx":            struct{}{},
+		},
+	})))
 }
 
 func setup() http.Handler {
@@ -78,16 +92,14 @@ func setup() http.Handler {
 		isDev = true
 	}
 
-	_ = isDev
+	driverName := "mysql"
+	if isDev {
+		RegisterTracer()
 
-	if true {
-		proxy.RegisterTracer()
-
-		db, err = sqlx.Connect("mysql:trace", dbConfig.FormatDSN())
-	} else {
-		db, err = sqlx.Connect("mysql", dbConfig.FormatDSN())
+		driverName = "mysql:mytrace"
 	}
 
+	db, err = sqlx.Connect(driverName, dbConfig.FormatDSN())
 	if err != nil {
 		panic(err)
 	}
